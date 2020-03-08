@@ -14,6 +14,8 @@ class Bus:
         self.ppu = OLC2C02()
         self.connect_to_bus("ppu", self.ppu)
         self.cart = None
+        self.controller = [0, 0]
+        self.controller_state = [0, 0]
         self.system_clock_counter = 0
         self.please_break = False
 
@@ -33,7 +35,7 @@ class Bus:
             self.cart.bus = self
             self.cpu.cart = dev
             self.ppu.cart = dev
-        print(dev_type, "is connected")
+        # print(dev_type, "is connected")
 
     def cpu_write(self, addr, data):
         if self.cart.cpu_write(addr, data):
@@ -44,9 +46,12 @@ class Bus:
         elif 0x2000 <= addr <= 0x3FFF:
             self.ppu.cpu_write(addr & 0x0007, data)
             return
+        elif 0x4016 <= addr <= 0x4017:
+            pass
+            # self.controller_state[addr & 0x0001] = self.controller[addr & 0x0001]
         else:
             print("No device found at", hex(addr), "cannot write")
-            self.please_break = True
+#            self.please_break = True
 
     def cpu_read(self, addr, _b_read_only=False):
         data = [0x00]
@@ -56,8 +61,11 @@ class Bus:
             data[0] = self.cpuram.ram[addr & 0x07FF]
         elif 0x2000 <= addr <= 0x3FFF:
             data[0] = self.ppu.cpu_read(addr & 0x0007)
+        elif 0x4016 <= addr <= 0x4017:
+            pass
+            # data[0] = (self.controller_state[addr & 0x0001] & 0x80) > 0
+            # self.controller_state[addr & 0x0001] <<= 1
         else:
-            self.please_break = True
             print("No device found at", hex(addr), "cannot read. returning 0x0000")
         return data[0]
 
@@ -71,9 +79,13 @@ class Bus:
     def reset(self):
         self.cpu.reset()
         self.system_clock_counter = 0
+        print("system reset")
 
     def clock(self):
         self.ppu.clock()
         if self.system_clock_counter % 3 == 0:
             self.cpu.clock()
+        if self.ppu.nmi:
+            self.ppu.nmi = False
+            self.cpu.nmi()
         self.system_clock_counter += 1

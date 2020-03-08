@@ -38,7 +38,8 @@ class Mapper000(Mapper):
         return False
 
     def ppu_map_write(self, addr, mapped_addr):
-        # if 0x0000 <= addr <= 0x1FFF:
-        #     return True
+        if 0x0000 <= addr <= 0x1FFF:
+            if self.chr_banks == 0:
+                mapped_addr[0] = addr
+                return True
         return False
-
