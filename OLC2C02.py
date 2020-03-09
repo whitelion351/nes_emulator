@@ -1,11 +1,13 @@
 import cv2
 import numpy as np
-from time import sleep
+from threading import Thread
+
 
 class OLC2C02:
     def __init__(self):
 
-        self.my_temp = 1
+        self.thread = Thread(name="nametbl_thread", target=self.get_name_table, args=[0])
+
         self.bus = None
         self.cart = None
         self.name_table = np.zeros((2, 1024), dtype=np.uint8)
@@ -277,16 +279,16 @@ class OLC2C02:
                     self.name_table[1, addr & 0x03FF] = data
             elif self.cart.mirror == self.cart.MIRROR.HORIZONTAL:
                 if 0x0000 <= addr <= 0x03FF:
-                    print("nametable 0 [{}]".format(addr & 0x03FF))
+                    # print("nametable 0 [{}]".format(addr & 0x03FF))
                     self.name_table[0, addr & 0x03FF] = data
                 if 0x0400 <= addr <= 0x07FF:
-                    print("nametable 0 [{}]".format(addr & 0x03FF))
+                    # print("nametable 0 [{}]".format(addr & 0x03FF))
                     self.name_table[0, addr & 0x03FF] = data
                 if 0x0800 <= addr <= 0x0BFF:
-                    print("nametable 1 [{}]".format(addr & 0x03FF))
+                    # print("nametable 1 [{}]".format(addr & 0x03FF))
                     self.name_table[1, addr & 0x03FF] = data
                 if 0x0C00 <= addr <= 0x0FFF:
-                    print("nametable 1 [{}]".format(addr & 0x03FF))
+                    # print("nametable 1 [{}]".format(addr & 0x03FF))
                     self.name_table[1, addr & 0x03FF] = data
 
         elif 0x3F00 <= addr <= 0x3FFF:
@@ -306,17 +308,13 @@ class OLC2C02:
 
     def get_name_table(self, i):
         for y in range(30):
-            # print([hex(v) for v in self.name_table[i][y*32:y*32 + 32]])
             for x in range(32):
                 t_id = self.name_table[i, (y*32) + x]
                 tile_x = (t_id & 0x0f)
                 tile_y = ((t_id >> 4) & 0x0f)
-                # print("nm_tbl x: {} nm_tbl y: {} tile x: {} tile y: {}".format(x, y, tile_x, tile_y))
-                # tile = self.pattern_table_sprite[1, tile_y:tile_y + 8, tile_x:tile_x + 8]
                 tile = self.get_tile(1, tile_x, tile_y)
                 self.name_table_sprite[i, y*8:(y*8) + 8, x*8:(x*8) + 8] = tile
-        # print()
-        return self.name_table_sprite[i]
+#        return self.name_table_sprite[i]
 
     def get_tile(self, tbl_index, tile_x, tile_y):
         offset = tile_y * 256 + tile_x * 16
@@ -368,14 +366,24 @@ class OLC2C02:
                 self.scanline = -1
                 self.frame_complete = True
         if self.frame_complete:
-            cv2.imshow("nametable0", self.get_name_table(0))
-            # cv2.imshow("nametable1", self.get_name_table(1))
-            if self.my_temp:
-                cv2.imshow("pattab1", self.get_pattern_table(1, self.selected_palette))
-                # cv2.imshow("pattab2", self.get_pattern_table(1, self.selected_palette))
-            key = cv2.waitKey(1)
-            if key == ord("b"):
-                sleep(600)
-            elif key == ord("n"):
-                self.my_temp = 0
+            if not self.thread.is_alive():
+                cv2.imshow("nametable0", self.name_table_sprite[0])
+                self.thread = Thread(name="nametbl_thread", target=self.get_name_table, args=[0])
+                self.thread.start()
+                key = cv2.waitKey(1)
+                if key == ord("w"):
+                    print("pressing up")
+                    self.bus.controller[0] = 0b1000
+                elif key == ord("s"):
+                    print("pressing down")
+                    self.bus.controller[0] = 0b100
+                elif key == ord("i"):
+                    print("pressing start")
+                    self.bus.controller[0] = 0b10000
+                else:
+                    self.bus.controller[0] = 0
+
+            # if self.my_temp:
+            #     cv2.imshow("pattab1", self.get_pattern_table(0, self.selected_palette))
+            #     cv2.imshow("pattab2", self.get_pattern_table(1, self.selected_palette))
             self.frame_complete = False

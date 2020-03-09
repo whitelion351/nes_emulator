@@ -3,13 +3,18 @@ from Bus import Bus as Nes
 
 
 nes = Nes()
-# nes.insert_cart("nestest.nes")
-# nes.insert_cart("Donkey Kong Jr. (JU) [p1].nes")
-# nes.insert_cart("Bomberman (U).nes")
-nes.insert_cart("Burger Time (U) [!].nes")
-# nes.insert_cart("Super Mario Bros (E).nes")
-# nes.insert_cart("Mario Bros (JU).nes")
-# nes.insert_cart("Donkey Kong (JU) [p1].nes")
+# nes.insert_cart("roms/testroms/nestest.nes")
+# nes.insert_cart("roms/testroms/official_only.nes")  # requires mapper001
+# nes.insert_cart("roms/testroms/all_instrs.nes")  # requires mapper001
+# nes.insert_cart("roms/testroms/instr_timing.nes")  # requires mapper001
+# nes.insert_cart("roms/testroms/cpu_dummy_writes_ppumem.nes")
+
+# nes.insert_cart("roms/Donkey Kong Jr. (JU) [p1].nes")
+# nes.insert_cart("roms/Bomberman (U).nes")
+# nes.insert_cart("roms/Burger Time (U) [!].nes")
+nes.insert_cart("roms/Super Mario Bros (E).nes")
+# nes.insert_cart("roms/Mario Bros (JU).nes")
+# nes.insert_cart("roms/Donkey Kong (JU) [p1].nes")
 nes.reset()
 # nes.cpu.pc = 0xC000
 

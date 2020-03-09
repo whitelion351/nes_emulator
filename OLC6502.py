@@ -9,9 +9,9 @@ class OLC6502:
         self.ppu = None  # Connection to ppu
         self.cart = None  # Connection to cartridge
         self.FLAGS6502 = self.FLAGS6502Enums  # Flags Enum
-        self.a = 0x00  # Accumulator Register
-        self.x = 0x00  # X Register
-        self.y = 0x00  # Y Register
+        self.a = np.uint8(0x00)  # Accumulator Register
+        self.x = np.uint8(0x00)  # X Register
+        self.y = np.uint8(0x00)  # Y Register
         self.stkp = 0xFD  # Stack Pointer (points to location on bus)
         self.pc = 0x00  # Program Counter
         self.status = 0x00  # Status Register
@@ -21,6 +21,8 @@ class OLC6502:
         self.opcode = 0x00
         self.opcode_item = None
         self.cycles = 0
+
+        self.debug = False
 
     class FLAGS6502Enums(Enum):
         # Enumerations for the status register
@@ -104,6 +106,7 @@ class OLC6502:
         self.pc = (self.pc + 1) & 0xFFFF
         hi = self.read(self.pc)
         self.pc = (self.pc + 1) & 0xFFFF
+
         self.addr_abs = (hi << 8) | lo
         self.addr_abs = (self.addr_abs + self.x) & 0xFFFF
         if (self.addr_abs & 0xFF00) != (hi << 8):
@@ -117,7 +120,7 @@ class OLC6502:
         hi = self.read(self.pc)
         self.pc = (self.pc + 1) & 0xFFFF
         self.addr_abs = (hi << 8) | lo
-        self.addr_abs = (self.addr_abs + self.x) & 0xFFFF
+        self.addr_abs = (self.addr_abs + self.y) & 0xFFFF
         if (self.addr_abs & 0xFF00) != (hi << 8):
             return 1
         else:
@@ -180,7 +183,7 @@ class OLC6502:
         temp = (self.fetched << 1) & 0xFF
         self.set_flag(self.FLAGS6502.N, temp & 0x80)
         self.set_flag(self.FLAGS6502.Z, (temp & 0xFF) == 0x00)
-        if self.opcode_item.addr_mode == self.IMP:
+        if self.opcode_item.addr_mode.__name__ == "IMP":
             self.a = temp & 0x00FF
         else:
             self.write(self.addr_abs, temp & 0x00FF)
@@ -299,26 +302,26 @@ class OLC6502:
 
     def CMP(self):
         self.fetch()
-        temp = (self.a - self.fetched) % 256
+        temp = (self.a - self.fetched) & 0xFF
         self.set_flag(self.FLAGS6502.C, self.a >= self.fetched)
-        self.set_flag(self.FLAGS6502.Z, (temp & 0x00FF) == 0x0000)
-        self.set_flag(self.FLAGS6502.N, temp & 0x0080)
+        self.set_flag(self.FLAGS6502.Z, temp == 0x00)
+        self.set_flag(self.FLAGS6502.N, temp & 0x80)
         return 1
 
     def CPX(self):
         self.fetch()
-        temp = (self.x - self.fetched) % 256
+        temp = (self.x - self.fetched) & 0xFF
         self.set_flag(self.FLAGS6502.C, self.x >= self.fetched)
-        self.set_flag(self.FLAGS6502.Z, (temp & 0x00FF) == 0x0000)
-        self.set_flag(self.FLAGS6502.N, temp & 0x0080)
+        self.set_flag(self.FLAGS6502.Z, temp == 0x00)
+        self.set_flag(self.FLAGS6502.N, temp & 0x80)
         return 0
 
     def CPY(self):
         self.fetch()
-        temp = (self.y - self.fetched) % 256
+        temp = (self.y - self.fetched) & 0xFF
         self.set_flag(self.FLAGS6502.C, self.y >= self.fetched)
-        self.set_flag(self.FLAGS6502.Z, (temp & 0x00FF) == 0x0000)
-        self.set_flag(self.FLAGS6502.N, temp & 0x0080)
+        self.set_flag(self.FLAGS6502.Z, temp == 0x00)
+        self.set_flag(self.FLAGS6502.N, temp & 0x80)
         return 0
 
     def DEC(self):
@@ -414,7 +417,7 @@ class OLC6502:
         temp = self.fetched >> 1
         self.set_flag(self.FLAGS6502.Z, (temp & 0x00FF) == 0x0000)
         self.set_flag(self.FLAGS6502.N, temp & 0x0080)
-        if self.opcode_item.addr_mode == self.IMP:
+        if self.opcode_item.addr_mode.__name__ == "IMP":
             self.a = temp & 0x00FF
         else:
             self.write(self.addr_abs, temp & 0x00FF)
@@ -465,7 +468,7 @@ class OLC6502:
         temp &= 0xFF
         self.set_flag(self.FLAGS6502.N, temp & 0x80)
         self.set_flag(self.FLAGS6502.Z, temp == 0x0)
-        if self.opcode_item.addr_mode == self.IMP:
+        if self.opcode_item.addr_mode.__name__ == "IMP":
             self.a = temp
         else:
             self.write(self.addr_abs, temp)
@@ -480,7 +483,7 @@ class OLC6502:
         temp = temp >> 1
         self.set_flag(self.FLAGS6502.N, temp & 0x80)
         self.set_flag(self.FLAGS6502.Z, temp == 0x0)
-        if self.opcode_item.addr_mode == self.IMP:
+        if self.opcode_item.addr_mode.__name__ == "IMP":
             self.a = temp & 0xFF
         else:
             self.write(self.addr_abs, temp & 0xFF)
@@ -505,14 +508,13 @@ class OLC6502:
 
     def SBC(self):
         self.fetch()
-        carry = 0 if self.get_flag(self.FLAGS6502.C) else 1
-        temp = np.uint8(self.a - self.fetched - carry)
-        self.set_flag(self.FLAGS6502.N, temp & (1 << 7))
-        self.set_flag(self.FLAGS6502.Z, (temp & 0xFF))
-        self.set_flag(self.FLAGS6502.V, ((self.a ^ temp) & 0x80) and ((self.a ^ self.fetched) & 0x80))
-        self.set_flag(self.FLAGS6502.C, temp < 0x100)
+        value = self.fetched ^ 0x00FF
+        temp = np.uint16(self.a + value + self.get_flag(self.FLAGS6502.C))
+        self.set_flag(self.FLAGS6502.C, temp & 0xFF00)
+        self.set_flag(self.FLAGS6502.Z, (temp & 0x00FF) == 0x00)
+        self.set_flag(self.FLAGS6502.V, (temp ^ self.a) & (temp ^ value) & 0x80)
+        self.set_flag(self.FLAGS6502.N, temp & 0x80)
         self.a = (temp & 0xFF)
-        # print("result: {} - {}".format(self.a, bin(self.a)), end="\n\n")
         return 1
 
     def SEC(self):
@@ -577,19 +579,34 @@ class OLC6502:
         return 0
 
     #######################################################
+    # Unofficial Opcodes
+
+    def LAX(self):
+        self.LDA()
+        self.TAX()
+        return 1
+
+    #######################################################
     # External Signals
+
     def clock(self):
         if self.cycles == 0:
             self.opcode = self.read(self.pc)
             self.opcode_item = self.do_lookup(self.opcode)
-            # print("addr: {} op: {} {} {}".format(hex(self.pc), hex(self.opcode), self.opcode_item.addr_mode.__name__, self.opcode_item.name), end=" ")
+            if self.opcode_item.name == "???":
+                print("addr {} ran illegal opcode {} {}".format(hex(self.pc), hex(self.opcode), self.opcode_item.name))
+                self.debug = True
+            if self.debug is True or hex(self.pc) == "0xe4da":  # or self.opcode_item.addr_mode.__name__ == "ABX" or hex(self.pc) == "0xe1e2":
+                print("addr: {} op: {} {} {}".format(hex(self.pc), hex(self.opcode), self.opcode_item.addr_mode.__name__, self.opcode_item.name), end=" ")
+                self.debug = True
             self.set_flag(self.FLAGS6502.U, True)
             self.pc = (self.pc + 1) & 0xFFFF
             self.cycles = self.opcode_item.cycles
             additional_cycle1 = self.opcode_item.addr_mode(self)
             additional_cycle2 = self.opcode_item.operation(self)
             self.cycles += (additional_cycle1 + additional_cycle2)
-            # print("f: {} abs: {} rel: {} l_d: {}".format(self.fetched, hex(self.addr_abs), hex(self.addr_rel), hex(self.read(self.addr_abs))))
+            if self.debug is True:
+                print("f: {} abs: {} rel: {} l_d: {}".format(hex(self.fetched), hex(self.addr_abs), hex(self.addr_rel), hex(self.read(self.addr_abs))))
             status_string = ""
             status_string += "C " if self.get_flag(self.FLAGS6502.C) else "c "
             status_string += "Z " if self.get_flag(self.FLAGS6502.Z) else "z "
@@ -599,8 +616,14 @@ class OLC6502:
             status_string += "U " if self.get_flag(self.FLAGS6502.U) else "u "
             status_string += "V " if self.get_flag(self.FLAGS6502.V) else "v "
             status_string += "N" if self.get_flag(self.FLAGS6502.N) else "n"
-            # print("ram:", self.bus.cpuram.ram[0x0:0x4], "A: {} X: {} Y: {}".format(self.a, self.x, self.y), status_string)
+            if self.debug is True:
+                print("ram:", self.bus.cpuram.ram[0x0:0x11], "A: {} X: {} Y: {}".format(hex(self.a), hex(self.x), hex(self.y)), status_string)
+                a = input("1 to skip, any other to step: ")
+                if a == "1":
+                    self.debug = False
+
             self.set_flag(self.FLAGS6502.U, True)
+
         self.cycles -= 1
 
     def reset(self):
@@ -684,8 +707,8 @@ class OLC6502:
         [LookupItem("BVS", BVS, REL, 2), LookupItem("ADC", ADC, IZY, 5), LookupItem("???", XXX, IMP, 2), LookupItem("???", XXX, IMP, 8), LookupItem("NOP", NOP, IMP, 4), LookupItem("ADC", ADC, ZPX, 4), LookupItem("ROR", ROR, ZPX, 6), LookupItem("???", XXX, IMP, 6), LookupItem("SEI", SEI, IMP, 2), LookupItem("ADC", ADC, ABY, 4), LookupItem("NOP", NOP, IMP, 2), LookupItem("???", XXX, IMP, 7), LookupItem("NOP", NOP, IMP, 4), LookupItem("ADC", ADC, ABX, 4), LookupItem("ROR", ROR, ABX, 7), LookupItem("???", XXX, IMP, 7)],
         [LookupItem("NOP", NOP, IMP, 2), LookupItem("STA", STA, IZX, 6), LookupItem("???", XXX, IMP, 2), LookupItem("???", XXX, IMP, 6), LookupItem("STY", STY, ZP0, 3), LookupItem("STA", STA, ZP0, 3), LookupItem("STX", STX, ZP0, 3), LookupItem("???", XXX, IMP, 3), LookupItem("DEY", DEY, IMP, 2), LookupItem("NOP", NOP, IMM, 2), LookupItem("TXA", TXA, IMP, 2), LookupItem("???", XXX, IMP, 2), LookupItem("STY", STY, ABS, 4), LookupItem("STA", STA, ABS, 4), LookupItem("STX", STX, ABS, 4), LookupItem("???", XXX, IMP, 4)],
         [LookupItem("BCC", BCC, REL, 2), LookupItem("STA", STA, IZY, 6), LookupItem("???", XXX, IMP, 2), LookupItem("???", XXX, IMP, 6), LookupItem("STY", STY, ZPX, 4), LookupItem("STA", STA, ZPX, 4), LookupItem("STX", STX, ZPY, 4), LookupItem("???", XXX, IMP, 4), LookupItem("TYA", TYA, IMP, 2), LookupItem("STA", STA, ABY, 5), LookupItem("TXS", TXS, IMP, 2), LookupItem("???", XXX, IMP, 5), LookupItem("NOP", NOP, IMP, 5), LookupItem("STA", STA, ABX, 5), LookupItem("???", XXX, IMP, 5), LookupItem("???", XXX, IMP, 5)],
-        [LookupItem("LDY", LDY, IMM, 2), LookupItem("LDA", LDA, IZX, 6), LookupItem("LDX", LDX, IMM, 2), LookupItem("???", XXX, IMP, 6), LookupItem("LDY", LDY, ZP0, 3), LookupItem("LDA", LDA, ZP0, 3), LookupItem("LDX", LDX, ZP0, 3), LookupItem("???", XXX, IMP, 3), LookupItem("TAY", TAY, IMP, 2), LookupItem("LDA", LDA, IMM, 2), LookupItem("TAX", TAX, IMP, 2), LookupItem("???", XXX, IMP, 2), LookupItem("LDY", LDY, ABS, 4), LookupItem("LDA", LDA, ABS, 4), LookupItem("LDX", LDX, ABS, 4), LookupItem("???", XXX, IMP, 4)],
-        [LookupItem("BCS", BCS, REL, 2), LookupItem("LDA", LDA, IZY, 5), LookupItem("???", XXX, IMP, 2), LookupItem("???", XXX, IMP, 5), LookupItem("LDY", LDY, ZPX, 4), LookupItem("LDA", LDA, ZPX, 4), LookupItem("LDX", LDX, ZPY, 4), LookupItem("???", XXX, IMP, 4), LookupItem("CLV", CLV, IMP, 2), LookupItem("LDA", LDA, ABY, 4), LookupItem("TSX", TSX, IMP, 2), LookupItem("???", XXX, IMP, 4), LookupItem("LDY", LDY, ABX, 4), LookupItem("LDA", LDA, ABX, 4), LookupItem("LDX", LDX, ABX, 4), LookupItem("???", XXX, IMP, 4)],
+        [LookupItem("LDY", LDY, IMM, 2), LookupItem("LDA", LDA, IZX, 6), LookupItem("LDX", LDX, IMM, 2), LookupItem("LAX", LAX, IZX, 6), LookupItem("LDY", LDY, ZP0, 3), LookupItem("LDA", LDA, ZP0, 3), LookupItem("LDX", LDX, ZP0, 3), LookupItem("???", XXX, IMP, 3), LookupItem("TAY", TAY, IMP, 2), LookupItem("LDA", LDA, IMM, 2), LookupItem("TAX", TAX, IMP, 2), LookupItem("???", XXX, IMP, 2), LookupItem("LDY", LDY, ABS, 4), LookupItem("LDA", LDA, ABS, 4), LookupItem("LDX", LDX, ABS, 4), LookupItem("???", XXX, IMP, 4)],
+        [LookupItem("BCS", BCS, REL, 2), LookupItem("LDA", LDA, IZY, 5), LookupItem("???", XXX, IMP, 2), LookupItem("???", XXX, IMP, 5), LookupItem("LDY", LDY, ZPX, 4), LookupItem("LDA", LDA, ZPX, 4), LookupItem("LDX", LDX, ZPY, 4), LookupItem("???", XXX, IMP, 4), LookupItem("CLV", CLV, IMP, 2), LookupItem("LDA", LDA, ABY, 4), LookupItem("TSX", TSX, IMP, 2), LookupItem("???", XXX, IMP, 4), LookupItem("LDY", LDY, ABX, 4), LookupItem("LDA", LDA, ABX, 4), LookupItem("LDX", LDX, ABY, 4), LookupItem("???", XXX, IMP, 4)],
         [LookupItem("CPY", CPY, IMM, 2), LookupItem("CMP", CMP, IZX, 6), LookupItem("NOP", NOP, IMP, 2), LookupItem("???", XXX, IMP, 8), LookupItem("CPY", CPY, ZP0, 3), LookupItem("CMP", CMP, ZP0, 3), LookupItem("DEC", DEC, ZP0, 5), LookupItem("???", XXX, IMP, 5), LookupItem("INY", INY, IMP, 2), LookupItem("CMP", CMP, IMM, 2), LookupItem("DEX", DEX, IMP, 2), LookupItem("???", XXX, IMP, 2), LookupItem("CPY", CPY, ABS, 4), LookupItem("CMP", CMP, ABS, 4), LookupItem("DEC", DEC, ABS, 6), LookupItem("???", XXX, IMP, 6)],
         [LookupItem("BNE", BNE, REL, 2), LookupItem("CMP", CMP, IZY, 5), LookupItem("???", XXX, IMP, 2), LookupItem("???", XXX, IMP, 8), LookupItem("NOP", NOP, IMP, 4), LookupItem("CMP", CMP, ZPX, 4), LookupItem("DEC", DEC, ZPX, 6), LookupItem("???", XXX, IMP, 6), LookupItem("CLD", CLD, IMP, 2), LookupItem("CMP", CMP, ABY, 4), LookupItem("NOP", NOP, IMP, 2), LookupItem("???", XXX, IMP, 7), LookupItem("NOP", NOP, IMP, 4), LookupItem("CMP", CMP, ABX, 4), LookupItem("DEC", DEC, ABX, 7), LookupItem("???", XXX, IMP, 7)],
         [LookupItem("CPX", CPX, IMM, 2), LookupItem("SBC", SBC, IZX, 6), LookupItem("NOP", NOP, IMP, 2), LookupItem("???", XXX, IMP, 8), LookupItem("CPX", CPX, ZP0, 3), LookupItem("SBC", SBC, ZP0, 3), LookupItem("INC", INC, ZP0, 5), LookupItem("???", XXX, IMP, 5), LookupItem("INX", INX, IMP, 2), LookupItem("SBC", SBC, IMM, 2), LookupItem("NOP", NOP, IMP, 2), LookupItem("SBC", SBC, IMP, 2), LookupItem("CPX", CPX, ABS, 4), LookupItem("SBC", SBC, ABS, 4), LookupItem("INC", INC, ABS, 6), LookupItem("???", XXX, IMP, 6)],
@@ -694,7 +717,7 @@ class OLC6502:
 
     # Other Helper functions
     def fetch(self):
-        if self.opcode_item.addr_mode != self.IMP:
+        if self.opcode_item.addr_mode.__name__ != "IMP":
             self.fetched = self.read(self.addr_abs)
         return self.fetched
 

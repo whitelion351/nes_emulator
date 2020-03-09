@@ -22,6 +22,7 @@ class Cartridge:
         self.CHR_banks = 0
         self.PRG_memory = []
         self.CHR_memory = []
+        self.sram = []
         self.mapper = None
         self.load_rom()
 
@@ -92,12 +93,18 @@ class Cartridge:
             else:
                 print("Mapper{} not implemented yet".format(self.mapperID))
                 return None
+        self.sram = [0 for _ in range(0x2000)]
 
     def cpu_read(self, addr, data):
         mapped_addr = [0]
         if self.mapper.cpu_map_read(addr, mapped_addr):
             data[0] = self.PRG_memory[mapped_addr[0]]
             # print("{} -> {} = {} reading from cartridge PRG mem".format(hex(addr), hex(mapped_addr[0]), hex(data[0])))
+            return True
+        elif 0x6000 <= addr <= 0x7FFF:
+            addr &= 0x1FFF
+            data[0] = self.sram[addr]
+            # print("reading {} from sram[{}]".format(hex(data[0]), hex(addr)))
             return True
         else:
             return False
@@ -107,6 +114,10 @@ class Cartridge:
         if self.mapper.cpu_map_write(addr, mapped_addr):
             self.PRG_memory[mapped_addr[0]] = data
             # print("{} -> {} = {} writing to cartridge PRG mem".format(hex(addr), hex(mapped_addr[0]), hex(data)))
+            return True
+        elif 0x6000 <= addr <= 0x7FFF:
+            addr &= 0x1FFF
+            self.sram[addr] = data
             return True
         else:
             return False

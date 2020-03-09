@@ -47,8 +47,7 @@ class Bus:
             self.ppu.cpu_write(addr & 0x0007, data)
             return
         elif 0x4016 <= addr <= 0x4017:
-            pass
-            # self.controller_state[addr & 0x0001] = self.controller[addr & 0x0001]
+            self.controller_state[addr & 0x0001] = self.controller[addr & 0x0001]
         else:
             print("No device found at", hex(addr), "cannot write")
 #            self.please_break = True
@@ -62,9 +61,8 @@ class Bus:
         elif 0x2000 <= addr <= 0x3FFF:
             data[0] = self.ppu.cpu_read(addr & 0x0007)
         elif 0x4016 <= addr <= 0x4017:
-            pass
-            # data[0] = (self.controller_state[addr & 0x0001] & 0x80) > 0
-            # self.controller_state[addr & 0x0001] <<= 1
+            data[0] = (self.controller_state[addr & 0x0001] & 0x80) > 0
+            self.controller_state[addr & 0x0001] = (self.controller_state[addr & 0x0001] << 1) & 0xFF
         else:
             print("No device found at", hex(addr), "cannot read. returning 0x0000")
         return data[0]
