@@ -39,18 +39,15 @@ class Bus:
 
     def cpu_write(self, addr, data):
         if self.cart.cpu_write(addr, data):
-            return
+            pass
         elif 0x0000 <= addr <= 0x1FFF:
             self.cpuram.ram[addr & 0x07FF] = data
-            return
         elif 0x2000 <= addr <= 0x3FFF:
             self.ppu.cpu_write(addr & 0x0007, data)
-            return
         elif 0x4016 <= addr <= 0x4017:
             self.controller_state[addr & 0x0001] = self.controller[addr & 0x0001]
         else:
             print("No device found at", hex(addr), "cannot write")
-#            self.please_break = True
 
     def cpu_read(self, addr, _b_read_only=False):
         data = [0x00]

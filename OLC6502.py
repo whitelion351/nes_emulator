@@ -36,13 +36,9 @@ class OLC6502:
         N = (1 << 7)  # Negative
 
     def write(self, a, d):
-        if a > 0xFFFF or d > 0xFF:
-            print("{} {} {} write to addr {} data {}".format(hex(self.opcode), self.opcode_item.addr_mode.__name__, self.opcode_item.name, hex(a), hex(d)))
         self.bus.cpu_write(a, d)
 
     def read(self, a):
-        if a > 0xFFFF:
-            print("{} {} {} read from addr {}".format(hex(self.opcode), self.opcode_item.addr_mode.__name__, self.opcode_item.name, hex(a)))
         return self.bus.cpu_read(a)
 
     def get_flag(self, f):
@@ -59,6 +55,10 @@ class OLC6502:
 
     #######################################################
     # Addressing Modes
+
+    def ACC(self):
+        return 0
+
     def IMP(self):
         self.fetched = self.a
         return 0
@@ -386,8 +386,6 @@ class OLC6502:
 
     def LDA(self):
         self.fetch()
-        if self.fetched > 255:
-            print("loaded out of range value into accumulator {} from {}".format(hex(self.fetched), hex(self.addr_abs)))
         self.a = self.fetched
         self.set_flag(self.FLAGS6502.Z, self.a == 0x00)
         self.set_flag(self.FLAGS6502.N, self.a & 0x80)
@@ -395,8 +393,6 @@ class OLC6502:
 
     def LDX(self):
         self.fetch()
-        if self.fetched > 255:
-            print("loaded out of range value into x reg {} from {}".format(hex(self.fetched), hex(self.addr_abs)))
         self.x = self.fetched
         self.set_flag(self.FLAGS6502.Z, self.x == 0x00)
         self.set_flag(self.FLAGS6502.N, self.x & 0x80)
@@ -404,8 +400,6 @@ class OLC6502:
 
     def LDY(self):
         self.fetch()
-        if self.fetched > 255:
-            print("loaded out of range value into y reg {} from {}".format(hex(self.fetched), hex(self.addr_abs)))
         self.y = self.fetched
         self.set_flag(self.FLAGS6502.Z, self.y == 0x00)
         self.set_flag(self.FLAGS6502.N, self.y & 0x80)
@@ -593,34 +587,34 @@ class OLC6502:
         if self.cycles == 0:
             self.opcode = self.read(self.pc)
             self.opcode_item = self.do_lookup(self.opcode)
-            if self.opcode_item.name == "???":
-                print("addr {} ran illegal opcode {} {}".format(hex(self.pc), hex(self.opcode), self.opcode_item.name))
-                self.debug = True
-            if self.debug is True or hex(self.pc) == "0xe4da":  # or self.opcode_item.addr_mode.__name__ == "ABX" or hex(self.pc) == "0xe1e2":
-                print("addr: {} op: {} {} {}".format(hex(self.pc), hex(self.opcode), self.opcode_item.addr_mode.__name__, self.opcode_item.name), end=" ")
-                self.debug = True
+            # if self.opcode_item.name == "???":
+            #     print("addr {} ran illegal opcode {} {}".format(hex(self.pc), hex(self.opcode), self.opcode_item.name))
+            #     self.debug = True
+            # if self.debug is True or hex(self.pc) == "0xe4da":  # or self.opcode_item.addr_mode.__name__ == "ABX" or hex(self.pc) == "0xe1e2":
+            #     print("addr: {} op: {} {} {}".format(hex(self.pc), hex(self.opcode), self.opcode_item.addr_mode.__name__, self.opcode_item.name), end=" ")
+            #     self.debug = True
             self.set_flag(self.FLAGS6502.U, True)
             self.pc = (self.pc + 1) & 0xFFFF
             self.cycles = self.opcode_item.cycles
             additional_cycle1 = self.opcode_item.addr_mode(self)
             additional_cycle2 = self.opcode_item.operation(self)
             self.cycles += (additional_cycle1 + additional_cycle2)
-            if self.debug is True:
-                print("f: {} abs: {} rel: {} l_d: {}".format(hex(self.fetched), hex(self.addr_abs), hex(self.addr_rel), hex(self.read(self.addr_abs))))
-            status_string = ""
-            status_string += "C " if self.get_flag(self.FLAGS6502.C) else "c "
-            status_string += "Z " if self.get_flag(self.FLAGS6502.Z) else "z "
-            status_string += "I " if self.get_flag(self.FLAGS6502.I) else "i "
-            status_string += "D " if self.get_flag(self.FLAGS6502.D) else "d "
-            status_string += "B " if self.get_flag(self.FLAGS6502.B) else "b "
-            status_string += "U " if self.get_flag(self.FLAGS6502.U) else "u "
-            status_string += "V " if self.get_flag(self.FLAGS6502.V) else "v "
-            status_string += "N" if self.get_flag(self.FLAGS6502.N) else "n"
-            if self.debug is True:
-                print("ram:", self.bus.cpuram.ram[0x0:0x11], "A: {} X: {} Y: {}".format(hex(self.a), hex(self.x), hex(self.y)), status_string)
-                a = input("1 to skip, any other to step: ")
-                if a == "1":
-                    self.debug = False
+            # if self.debug is True:
+            #     print("f: {} abs: {} rel: {} l_d: {}".format(hex(self.fetched), hex(self.addr_abs), hex(self.addr_rel), hex(self.read(self.addr_abs))))
+            # status_string = ""
+            # status_string += "C " if self.get_flag(self.FLAGS6502.C) else "c "
+            # status_string += "Z " if self.get_flag(self.FLAGS6502.Z) else "z "
+            # status_string += "I " if self.get_flag(self.FLAGS6502.I) else "i "
+            # status_string += "D " if self.get_flag(self.FLAGS6502.D) else "d "
+            # status_string += "B " if self.get_flag(self.FLAGS6502.B) else "b "
+            # status_string += "U " if self.get_flag(self.FLAGS6502.U) else "u "
+            # status_string += "V " if self.get_flag(self.FLAGS6502.V) else "v "
+            # status_string += "N" if self.get_flag(self.FLAGS6502.N) else "n"
+            # if self.debug is True:
+            #     print("ram:", self.bus.cpuram.ram[0x0:0x11], "A: {} X: {} Y: {}".format(hex(self.a), hex(self.x), hex(self.y)), status_string)
+            #     a = input("1 to skip, any other to step: ")
+            #     if a == "1":
+            #         self.debug = False
 
             self.set_flag(self.FLAGS6502.U, True)
 

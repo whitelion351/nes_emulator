@@ -16,7 +16,7 @@ class Mapper:
         pass
 
 
-class Mapper000(Mapper):
+class Mapper0(Mapper):
     def cpu_map_read(self, addr, mapped_addr):
         if 0x8000 <= addr <= 0xFFFF:
             map_mask = 0x7FFF if self.prg_banks > 1 else 0x3FFF

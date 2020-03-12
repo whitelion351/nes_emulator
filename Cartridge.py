@@ -1,4 +1,4 @@
-from Mappers import Mapper000
+from Mappers import Mapper0
 from enum import Enum
 
 
@@ -63,12 +63,6 @@ class Cartridge:
             if self.header.mapper1 & 0x04:
                 rom.read(512)
 
-            self.mapperID = ((self.header.mapper2 >> 4) << 4) | (self.header.mapper1 >> 4)
-            print("mapperID ", self.mapperID)
-            self.mirror = MIRROR.VERTICAL if (self.header.mapper1 & 0x01) else MIRROR.HORIZONTAL
-
-            print("mirror mode", "vertical" if self.mirror == MIRROR.VERTICAL else "horizontal")
-
             file_type = 1
 
             if file_type == 0:
@@ -87,9 +81,14 @@ class Cartridge:
 
             elif file_type == 2:
                 pass
+
+            self.mapperID = ((self.header.mapper2 >> 4) << 4) | (self.header.mapper1 >> 4)
+            self.mirror = MIRROR.VERTICAL if (self.header.mapper1 & 0x01) else MIRROR.HORIZONTAL
+            print("mapperID ", self.mapperID)
+            print("mirror mode", "vertical" if self.mirror == MIRROR.VERTICAL else "horizontal")
             if self.mapperID == 0:
-                print("selected Mapper000")
-                self.mapper = Mapper000(self.PRG_banks, self.CHR_banks)
+                print("selected Mapper0")
+                self.mapper = Mapper0(self.PRG_banks, self.CHR_banks)
             else:
                 print("Mapper{} not implemented yet".format(self.mapperID))
                 return None

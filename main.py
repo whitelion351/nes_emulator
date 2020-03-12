@@ -9,10 +9,10 @@ nes = Nes()
 # nes.insert_cart("roms/testroms/instr_timing.nes")  # requires mapper001
 # nes.insert_cart("roms/testroms/cpu_dummy_writes_ppumem.nes")
 
-# nes.insert_cart("roms/Donkey Kong Jr. (JU) [p1].nes")
+nes.insert_cart("roms/Donkey Kong Jr. (JU) [p1].nes")
 # nes.insert_cart("roms/Bomberman (U).nes")
 # nes.insert_cart("roms/Burger Time (U) [!].nes")
-nes.insert_cart("roms/Super Mario Bros (E).nes")
+# nes.insert_cart("roms/Super Mario Bros (E).nes")
 # nes.insert_cart("roms/Mario Bros (JU).nes")
 # nes.insert_cart("roms/Donkey Kong (JU) [p1].nes")
 nes.reset()

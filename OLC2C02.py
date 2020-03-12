@@ -1,25 +1,24 @@
 import cv2
 import numpy as np
-from threading import Thread
+from Registers import PPUStatusRegister, PPUControlRegister, PPUMaskRegister, LoopyRegister, Shifter16Bit
 
 
 class OLC2C02:
     def __init__(self):
 
-        self.thread = Thread(name="nametbl_thread", target=self.get_name_table, args=[0])
+        self.cycler = 0
 
         self.bus = None
         self.cart = None
-        self.name_table = np.zeros((2, 1024), dtype=np.uint8)
-        self.palette_table = np.zeros((32,), dtype=np.uint8)
-        self.pattern_table = np.zeros((2, 4096), dtype=np.uint8)
+        self.name_table = [[0 for _ in range(1024)] for _ in range(2)]
+        self.palette_table = [0 for _ in range(32)]
+        self.pattern_table = [[0 for _ in range(4096)] for _ in range(2)]
         self.screen_size_x = 256
         self.screen_size_y = 240
-        self.screen_image = np.zeros((256, 240, 3), dtype=np.uint8)
+        self.screen_image = [[(0, 0, 0) for _ in range(256)] for _ in range(240)]
 
         self.selected_palette = 0
-        self.screen_palette = np.zeros((0x40, 3), dtype=np.uint8)
-        self.screen_sprite = np.zeros((341, 261, 3), dtype=np.uint8)
+        self.screen_palette = [(0, 0, 0) for _ in range(0x40)]
         self.name_table_sprite = np.zeros((2, 240, 256, 3), dtype=np.uint8)
         self.pattern_table_sprite = np.zeros((2, 128, 128, 3), dtype=np.uint8)
         self.scanline = 0
@@ -27,14 +26,26 @@ class OLC2C02:
         self.frame_complete = False
         self.reverse_colors = False
 
-        self.control = self.PPURegister(init_value=0)  # nmi, ppu m/s, spr height, bg tile sel, inc mode, nametbl sel NN
-        self.mask = self.PPURegister(init_value=0)  # em blu, em grn, em red, spr en, bg en, spr lft en, bg lft en, gryscale
-        self.status = self.PPURegister(init_value=0)  # vertical_blank, spr_zero_hit, spr_overflow, 5 unused
+        self.control = PPUControlRegister()  # nmi, ppu m/s, spr height, bg tile sel, inc mode, nametbl sel NN
+        self.mask = PPUMaskRegister()  # enh blu, enh grn, enh red, spr en, bg en, spr lft en, bg lft en, gryscale
+        self.status = PPUStatusRegister()  # vertical_blank, spr_zero_hit, spr_overflow, 5 unused
+        self.vram = LoopyRegister()
+        self.tram = LoopyRegister()
+        self.fine_x = 0
 
-        self.nmi = False
+        self.bg_next_tile_id = 0
+        self.bg_next_tile_attrib = 0
+        self.bg_next_tile_lsb = 0
+        self.bg_next_tile_msb = 0
+
+        self.bg_shifter_pattern_lo = Shifter16Bit()
+        self.bg_shifter_pattern_hi = Shifter16Bit()
+        self.bg_shifter_attrib_lo = Shifter16Bit()
+        self.bg_shifter_attrib_hi = Shifter16Bit()
+
         self.address_latch = 0x00
         self.ppu_data_buffer = 0x00
-        self.ppu_address = 0x0000
+        self.nmi = False
 
         self.screen_palette[0x00] = (84, 84, 84)
         self.screen_palette[0x01] = (0, 30, 116) if self.reverse_colors else (116, 30, 0)
@@ -104,62 +115,6 @@ class OLC2C02:
         self.screen_palette[0x3E] = (0, 0, 0)
         self.screen_palette[0x3F] = (0, 0, 0)
 
-    class PPURegister:
-        def __init__(self, init_value=None):
-            self.value = 0x00 if init_value is None else init_value
-
-        def set_flag(self, f, v):
-            if f == "vertical_blank" or f == "enhance_blue" or f == "enable_nmi":
-                f = 1 << 7
-            elif f == "sprite_zero_hit" or f == "enhance_green" or f == "slave_mode":
-                f = 1 << 6
-            elif f == "sprite_overflow" or f == "enhance_red" or f == "sprite_size":
-                f = 1 << 5
-            elif f == "render_sprites" or f == "pattern_background":
-                f = 1 << 4
-            elif f == "render_background" or f == "pattern_sprite":
-                f = 1 << 3
-            elif f == "render_sprites_left" or f == "increment_mode":
-                f = 1 << 2
-            elif f == "render_background_left" or f == "name_table_y":
-                f = 1 << 1
-            elif f == "grayscale" or f == "name_table_x":
-                f = 1 << 0
-            else:
-                print(f, "bit not found in register")
-                return
-
-            if v:
-                self.value |= f
-            else:
-                self.value &= ~f
-
-        def get_flag(self, f):
-            if f == "vertical_blank" or f == "enhance_blue" or f == "enable_nmi":
-                f = 1 << 7
-            elif f == "sprite_zero_hit" or f == "enhance_green" or f == "slave_mode":
-                f = 1 << 6
-            elif f == "sprite_overflow" or f == "enhance_red" or f == "sprite_size":
-                f = 1 << 5
-            elif f == "render_sprites" or f == "pattern_background":
-                f = 1 << 4
-            elif f == "render_background" or f == "pattern_sprite":
-                f = 1 << 3
-            elif f == "render_sprites_left" or f == "increment_mode":
-                f = 1 << 2
-            elif f == "render_background_left" or f == "name_table_y":
-                f = 1 << 1
-            elif f == "grayscale" or f == "name_table_x":
-                f = 1 << 0
-            else:
-                print(f, "bit not found in register")
-                return 0
-
-            if self.value & f > 0:
-                return 1
-            else:
-                return 0
-
     def cpu_read(self, addr, _read_only=False):
         data = [0x00]
         if addr == 0x0000:  # control register is not readable
@@ -167,8 +122,8 @@ class OLC2C02:
         elif addr == 0x0001:  # mask register is not readable
             pass
         elif addr == 0x0002:  # status
-            data[0] = (self.status.value & 0xE0) | (self.ppu_data_buffer & 0x1F)
-            self.status.set_flag("vertical_blank", 0)
+            data[0] = (self.status.get() & 0xE0) | (self.ppu_data_buffer & 0x1F)
+            self.status.set_flag(self.status.Flags.vertical_blank, 0)
             self.address_latch = 0
         elif addr == 0x0003:  # OAM address
             pass
@@ -180,18 +135,21 @@ class OLC2C02:
             pass
         elif addr == 0x0007:  # PPU data
             data[0] = self.ppu_data_buffer
-            self.ppu_data_buffer = self.ppu_read(self.ppu_address)
-            if self.ppu_address >= 0x3F00:
+            ppu_address = self.vram.get()
+            self.ppu_data_buffer = self.ppu_read(ppu_address)
+            if ppu_address >= 0x3F00:
                 data[0] = self.ppu_data_buffer
-            self.ppu_address += 32 if self.control.get_flag("increment_mode") else 1
-            # print("cpu_read from ppu_address", hex(self.ppu_address))
+            ppu_address += 32 if self.control.get_flag(self.control.Flags.increment_mode) else 1
+            self.vram.set(ppu_address)
         return data[0]
 
     def cpu_write(self, addr, data):
         if addr == 0x0000:  # control
-            self.control.value = data
+            self.control.set(data)
+            self.tram.set_flag(self.tram.Flags.nametable_x, self.control.get_flag(self.control.Flags.nametable_x))
+            self.tram.set_flag(self.tram.Flags.nametable_y, self.control.get_flag(self.control.Flags.nametable_y))
         elif addr == 0x0001:  # mask
-            self.mask.value = data
+            self.mask.set(data)
         elif addr == 0x0002:  # status
             pass
         elif addr == 0x0003:  # OAM address
@@ -199,18 +157,27 @@ class OLC2C02:
         elif addr == 0x0004:  # OAM data
             pass
         elif addr == 0x0005:  # scroll
-            pass
-        elif addr == 0x0006:  # PPU address
             if self.address_latch == 0:
-                self.ppu_address = ((data & 0x3F) << 8) | (self.ppu_address & 0x00FF)
+                self.fine_x = data & 0x07
+                self.tram.set_flag(self.tram.Flags.course_x, data >> 3)
                 self.address_latch = 1
             else:
-                self.ppu_address = (self.ppu_address & 0xFF00) | data
+                self.tram.set_flag(self.tram.Flags.fine_y, data & 0x07)
+                self.tram.set_flag(self.tram.Flags.course_y, data >> 3)
+                self.address_latch = 0
+        elif addr == 0x0006:  # PPU address
+            if self.address_latch == 0:
+                self.tram.set(((data & 0x3F) << 8) | (self.tram.get() & 0x00FF))
+                self.address_latch = 1
+            else:
+                self.tram.set((self.tram.get() & 0xFF00) | data)
+                self.vram.set(self.tram.get())
                 self.address_latch = 0
         elif addr == 0x0007:  # ppu data
-            self.ppu_write(self.ppu_address, data)
-            self.ppu_address += 32 if self.control.get_flag("increment_mode") else 1
-            # print("cpu_write to ppu_address", hex(self.ppu_address), hex(data))
+            ppu_address = self.vram.get()
+            self.ppu_write(ppu_address, data)
+            ppu_address += 32 if self.control.get_flag(self.control.Flags.increment_mode) else 1
+            self.vram.set(ppu_address)
 
     def ppu_read(self, addr, _read_only=False):
         data = [0x00]
@@ -219,28 +186,28 @@ class OLC2C02:
             pass
         elif 0x0000 <= addr <= 0x1FFF:
             # reading
-            data[0] = self.pattern_table[(addr & 0x1000) >> 12, (addr & 0x0FFF)]
+            data[0] = self.pattern_table[(addr & 0x1000) >> 12][(addr & 0x0FFF)]
         elif 0x2000 <= addr <= 0x3EFF:
             addr &= 0x0FFF
 
             if self.cart.mirror == self.cart.MIRROR.VERTICAL:
                 if 0x0000 <= addr <= 0x03FF:
-                    data[0] = self.name_table[0, addr & 0x03FF]
+                    data[0] = self.name_table[0][addr & 0x03FF]
                 if 0x0400 <= addr <= 0x07FF:
-                    data[0] = self.name_table[1, addr & 0x03FF]
+                    data[0] = self.name_table[1][addr & 0x03FF]
                 if 0x0800 <= addr <= 0x0BFF:
-                    data[0] = self.name_table[0, addr & 0x03FF]
+                    data[0] = self.name_table[0][addr & 0x03FF]
                 if 0x0C00 <= addr <= 0x0FFF:
-                    data[0] = self.name_table[1, addr & 0x03FF]
+                    data[0] = self.name_table[1][addr & 0x03FF]
             elif self.cart.mirror == self.cart.MIRROR.HORIZONTAL:
                 if 0x0000 <= addr <= 0x03FF:
-                    data[0] = self.name_table[0, addr & 0x03FF]
+                    data[0] = self.name_table[0][addr & 0x03FF]
                 if 0x0400 <= addr <= 0x07FF:
-                    data[0] = self.name_table[0, addr & 0x03FF]
+                    data[0] = self.name_table[0][addr & 0x03FF]
                 if 0x0800 <= addr <= 0x0BFF:
-                    data[0] = self.name_table[1, addr & 0x03FF]
+                    data[0] = self.name_table[1][addr & 0x03FF]
                 if 0x0C00 <= addr <= 0x0FFF:
-                    data[0] = self.name_table[1, addr & 0x03FF]
+                    data[0] = self.name_table[1][addr & 0x03FF]
 
         elif 0x3F00 <= addr <= 0x3FFF:
             addr &= 0x001F
@@ -263,33 +230,29 @@ class OLC2C02:
             pass
         elif 0x0000 <= addr <= 0x1FFF:
             # writing to pattern table
-            self.pattern_table[(addr & 0x0FFF) >> 12, (addr & 0x0FFF)] = data
+            self.pattern_table[(addr & 0x0FFF) >> 12][(addr & 0x0FFF)] = data
         elif 0x2000 <= addr <= 0x3EFF:
             # writing to nametables
             addr &= 0x0FFF
 
             if self.cart.mirror == self.cart.MIRROR.VERTICAL:
                 if 0x0000 <= addr <= 0x03FF:
-                    self.name_table[0, addr & 0x03FF] = data
+                    self.name_table[0][addr & 0x03FF] = data
                 if 0x0400 <= addr <= 0x07FF:
-                    self.name_table[1, addr & 0x03FF] = data
+                    self.name_table[1][addr & 0x03FF] = data
                 if 0x0800 <= addr <= 0x0BFF:
-                    self.name_table[0, addr & 0x03FF] = data
+                    self.name_table[0][addr & 0x03FF] = data
                 if 0x0C00 <= addr <= 0x0FFF:
-                    self.name_table[1, addr & 0x03FF] = data
+                    self.name_table[1][addr & 0x03FF] = data
             elif self.cart.mirror == self.cart.MIRROR.HORIZONTAL:
                 if 0x0000 <= addr <= 0x03FF:
-                    # print("nametable 0 [{}]".format(addr & 0x03FF))
-                    self.name_table[0, addr & 0x03FF] = data
+                    self.name_table[0][addr & 0x03FF] = data
                 if 0x0400 <= addr <= 0x07FF:
-                    # print("nametable 0 [{}]".format(addr & 0x03FF))
-                    self.name_table[0, addr & 0x03FF] = data
+                    self.name_table[0][addr & 0x03FF] = data
                 if 0x0800 <= addr <= 0x0BFF:
-                    # print("nametable 1 [{}]".format(addr & 0x03FF))
-                    self.name_table[1, addr & 0x03FF] = data
+                    self.name_table[1][addr & 0x03FF] = data
                 if 0x0C00 <= addr <= 0x0FFF:
-                    # print("nametable 1 [{}]".format(addr & 0x03FF))
-                    self.name_table[1, addr & 0x03FF] = data
+                    self.name_table[1][addr & 0x03FF] = data
 
         elif 0x3F00 <= addr <= 0x3FFF:
             addr &= 0x001F
@@ -304,15 +267,16 @@ class OLC2C02:
             self.palette_table[addr] = data
 
     def get_screen(self):
-        return self.screen_image
+        screen = np.array(self.screen_image, dtype=np.uint8)
+        return screen
 
-    def get_name_table(self, i):
+    def get_name_table(self, i, pat):
         for y in range(30):
             for x in range(32):
-                t_id = self.name_table[i, (y*32) + x]
+                t_id = self.name_table[i][(y*32) + x]
                 tile_x = (t_id & 0x0f)
                 tile_y = ((t_id >> 4) & 0x0f)
-                tile = self.get_tile(1, tile_x, tile_y)
+                tile = self.get_tile(pat, tile_x, tile_y)
                 self.name_table_sprite[i, y*8:(y*8) + 8, x*8:(x*8) + 8] = tile
 #        return self.name_table_sprite[i]
 
@@ -349,13 +313,122 @@ class OLC2C02:
         return self.screen_palette[result]
 
     def clock(self):
-        if self.scanline == -1 and self.cycle == 1:
-            self.status.set_flag("vertical_blank", 0)
+
+        def increment_scroll_x():
+            if self.mask.get_flag(self.mask.Flags.render_background) or self.mask.get_flag(self.mask.Flags.render_sprites):
+                if self.vram.get_flag(self.vram.Flags.course_x) == 31:
+                    self.vram.set_flag(self.vram.Flags.course_x, 0)
+                    self.vram.set_flag(self.vram.Flags.nametable_x, 0 if self.vram.get_flag(self.vram.Flags.nametable_x) else 1)
+                else:
+                    self.vram.set_flag(self.vram.Flags.course_x, self.vram.get_flag(self.vram.Flags.course_x) + 1)
+
+        def increment_scroll_y():
+            if self.mask.get_flag(self.mask.Flags.render_background) or self.mask.get_flag(self.mask.Flags.render_sprites):
+                if self.vram.get_flag(self.vram.Flags.fine_y) < 7:
+                    self.vram.set_flag(self.vram.Flags.fine_y, self.vram.get_flag(self.vram.Flags.fine_y) + 1)
+                else:
+                    self.vram.set_flag(self.vram.Flags.fine_y, 0)
+                    if self.vram.get_flag(self.vram.Flags.course_y) == 29:
+                        self.vram.set_flag(self.vram.Flags.course_y, 0)
+                        self.vram.set_flag(self.vram.Flags.nametable_y, 0 if self.vram.get_flag(self.vram.Flags.nametable_y) else 1)
+                    elif self.vram.get_flag(self.vram.Flags.course_y) == 31:
+                        self.vram.set_flag(self.vram.Flags.course_y, 0)
+                    else:
+                        self.vram.set_flag(self.vram.Flags.course_y, self.vram.get_flag(self.vram.Flags.course_y) + 1)
+
+        def transfer_address_x():
+            if self.mask.get_flag(self.mask.Flags.render_background) or self.mask.get_flag(self.mask.Flags.render_sprites):
+                self.vram.set_flag(self.vram.Flags.nametable_x, self.tram.get_flag(self.tram.Flags.nametable_x))
+                self.vram.set_flag(self.vram.Flags.course_x, self.tram.get_flag(self.tram.Flags.course_x))
+
+        def transfer_address_y():
+            if self.mask.get_flag(self.mask.Flags.render_background) or self.mask.get_flag(self.mask.Flags.render_sprites):
+                self.vram.set_flag(self.vram.Flags.fine_y, self.tram.get_flag(self.tram.Flags.fine_y))
+                self.vram.set_flag(self.vram.Flags.nametable_y, self.tram.get_flag(self.tram.Flags.nametable_y))
+                self.vram.set_flag(self.vram.Flags.course_y, self.tram.get_flag(self.tram.Flags.course_y))
+
+        def load_background_shifters():
+            self.bg_shifter_pattern_lo.load(self.bg_next_tile_lsb)
+            self.bg_shifter_pattern_hi.load(self.bg_next_tile_msb)
+            attrib = 0xFF if self.bg_next_tile_attrib & 0b01 else 0x00
+            self.bg_shifter_attrib_lo.load(attrib)
+            attrib = 0xFF if self.bg_next_tile_attrib & 0b10 else 0x00
+            self.bg_shifter_attrib_hi.load(attrib)
+            # print("after  loading", self.bg_shifter_pattern_lo.reg)
+
+        def update_shifters():
+            if self.mask.get_flag(self.mask.Flags.render_background):
+                self.bg_shifter_pattern_lo <<= 1
+                self.bg_shifter_pattern_hi <<= 1
+                self.bg_shifter_attrib_lo <<= 1
+                self.bg_shifter_attrib_hi <<= 1
+                # print("after  shifting", self.bg_shifter_pattern_lo.reg)
+
+        if -1 <= self.scanline < 240:
+            if self.scanline == 0 and self.cycle == 0:
+                self.cycle = 1
+            if self.scanline == -1 and self.cycle == 1:
+                self.status.set_flag(self.status.Flags.vertical_blank, 0)
+
+            if (2 <= self.cycle < 258) or (321 <= self.cycle < 338):
+                update_shifters()
+
+                switch = (self.cycle - 1) % 8
+                if switch == 0:
+                    load_background_shifters()
+                    self.bg_next_tile_id = self.ppu_read(0x2000 | (self.vram.get() & 0x0FFF))
+                elif switch == 2:
+                    self.bg_next_tile_attrib = self.ppu_read(0x23C0 | (self.vram.get_flag(self.vram.Flags.nametable_y) << 11)
+                                                                    | (self.vram.get_flag(self.vram.Flags.nametable_x) << 10)
+                                                                    | ((self.vram.get_flag(self.vram.Flags.course_y) >> 2) << 3)
+                                                                    | (self.vram.get_flag(self.vram.Flags.course_x) >> 2))
+                    if self.vram.get_flag(self.vram.Flags.course_y) & 0x02:
+                        self.bg_next_tile_attrib >>= 4
+                    if self.vram.get_flag(self.vram.Flags.course_x) & 0x02:
+                        self.bg_next_tile_attrib >>= 2
+                    self.bg_next_tile_attrib &= 0x03
+                elif switch == 4:
+                    self.bg_next_tile_lsb = self.ppu_read((self.control.get_flag(self.control.Flags.pattern_background) << 12)
+                                                          + (self.bg_next_tile_id << 4)
+                                                          + (self.vram.get_flag(self.vram.Flags.fine_y) + 0))
+                elif switch == 6:
+                    self.bg_next_tile_msb = self.ppu_read((self.control.get_flag(self.control.Flags.pattern_background) << 12)
+                                                          + (self.bg_next_tile_id << 4)
+                                                          + (self.vram.get_flag(self.vram.Flags.fine_y) + 8))
+                elif switch == 7:
+                    increment_scroll_x()
+
+            if self.cycle == 256:
+                increment_scroll_y()
+            if self.cycle == 257:
+                load_background_shifters()
+                transfer_address_x()
+            if self.scanline == -1 and 280 <= self.cycle < 305:
+                transfer_address_y()
+
+        if self.scanline == 240:
+            pass
 
         if self.scanline == 241 and self.cycle == 1:
-            self.status.set_flag("vertical_blank", 1)
-            if self.control.get_flag("enable_nmi"):
+            self.status.set_flag(self.status.Flags.vertical_blank, 1)
+            if self.control.get_flag(self.control.Flags.enable_nmi):
                 self.nmi = True
+
+        bg_pixel = 0
+        bg_palette = 0
+
+        if self.mask.get_flag(self.mask.Flags.render_background):
+
+            p0_pixel = self.bg_shifter_pattern_lo.get(self.fine_x) > 0
+            p1_pixel = self.bg_shifter_pattern_hi.get(self.fine_x) > 0
+            bg_pixel = (p1_pixel << 1) | p0_pixel
+
+            bg_pal0 = self.bg_shifter_attrib_lo.get(self.fine_x) > 0
+            bg_pal1 = self.bg_shifter_attrib_hi.get(self.fine_x) > 0
+            bg_palette = (bg_pal1 << 1) | bg_pal0
+
+        if 0 <= self.scanline < 240 and 0 <= self.cycle < 256:
+            self.screen_image[self.scanline][self.cycle - 1] = self.get_color(bg_palette, bg_pixel)
 
         self.cycle += 1
 
@@ -366,24 +439,22 @@ class OLC2C02:
                 self.scanline = -1
                 self.frame_complete = True
         if self.frame_complete:
-            if not self.thread.is_alive():
-                cv2.imshow("nametable0", self.name_table_sprite[0])
-                self.thread = Thread(name="nametbl_thread", target=self.get_name_table, args=[0])
-                self.thread.start()
-                key = cv2.waitKey(1)
-                if key == ord("w"):
-                    print("pressing up")
-                    self.bus.controller[0] = 0b1000
-                elif key == ord("s"):
-                    print("pressing down")
-                    self.bus.controller[0] = 0b100
-                elif key == ord("i"):
-                    print("pressing start")
-                    self.bus.controller[0] = 0b10000
-                else:
-                    self.bus.controller[0] = 0
 
-            # if self.my_temp:
-            #     cv2.imshow("pattab1", self.get_pattern_table(0, self.selected_palette))
-            #     cv2.imshow("pattab2", self.get_pattern_table(1, self.selected_palette))
+            cv2.imshow("screen_image", self.get_screen())
+            # self.get_name_table(0, 1)
+            # cv2.imshow("nametable", self.name_table_sprite[0])
+            # cv2.imshow("pattertable1", self.get_pattern_table(0, self.selected_palette))
+            # cv2.imshow("patterntable2", self.get_pattern_table(1, self.selected_palette))
+            key = cv2.waitKey(1)
+            if key == ord("w"):
+                print("pressing up")
+                self.bus.controller[0] = 0b1000
+            elif key == ord("s"):
+                print("pressing down")
+                self.bus.controller[0] = 0b100
+            elif key == ord("i"):
+                print("pressing start")
+                self.bus.controller[0] = 0b10000
+            else:
+                self.bus.controller[0] = 0
             self.frame_complete = False
