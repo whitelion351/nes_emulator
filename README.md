@@ -3,7 +3,7 @@ Implementing the NES hardware in python
 
 CPU fully implemented with the exception of "undocumented" opcodes
 
-PPU is W.I.P
+Background rendering on the PPU is implemented
 
 APU not implemented
 
